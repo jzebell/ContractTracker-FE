@@ -5,6 +5,7 @@ import ResourceManagement from './components/Resource/ResourceManagement';
 import ContractManagement from './components/Contract/ContractManagement';
 import DebugFooter from './components/Debug/DebugFooter';
 import { setupApiInterceptors } from './services/apiInterceptor';
+import FinancialDashboard from './components/Dashboard/FinancialDashboard';
 
 interface ApiLog {
   timestamp: Date;
@@ -17,7 +18,7 @@ interface ApiLog {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'lcats' | 'resources' | 'contracts' | 'dashboard'>('contracts');
+  const [activeTab, setActiveTab] = useState<'contracts' | 'resources' | 'lcats' | 'dashboard' | 'financial-dashboard'>('contracts');
   const [apiLogs, setApiLogs] = useState<ApiLog[]>([]);
 
   useEffect(() => {
@@ -141,6 +142,19 @@ function App() {
                 Coming Soon
               </span>
             </button>
+            <button
+              onClick={() => setActiveTab('financial-dashboard')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'financial-dashboard'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Financial Analytics
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-600">
+                NEW
+              </span>
+            </button>
           </nav>
         </div>
       </div>
@@ -150,6 +164,7 @@ function App() {
         {activeTab === 'contracts' && <ContractManagement />}
         {activeTab === 'resources' && <ResourceManagement />}
         {activeTab === 'lcats' && <LCATManagement />}
+        {activeTab === 'financial-dashboard' && <FinancialDashboard />}
         {activeTab === 'dashboard' && (
           <div className="bg-white rounded-lg shadow p-8">
             <h2 className="text-2xl font-semibold text-gray-900 mb-4">Financial Dashboard</h2>
