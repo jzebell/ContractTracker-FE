@@ -12,7 +12,7 @@ import {
 import { LCAT } from '../../types/LCAT.types';
 import { resourceService } from '../../services/resourceService';
 import { lcatService } from '../../services/lcatService';
-import { format } from 'date-fns';
+import { formatDate } from '../../utils/dateHelpers';
 
 const ResourceManagement: React.FC = () => {
   // State for resources and LCATs
@@ -172,103 +172,84 @@ const ResourceManagement: React.FC = () => {
       setError(null); // Clear any errors
       alert('Resource created successfully!');
     } catch (err: any) {
-      console.error('Failed to create resource:', err);
-      const errorMessage = err.response?.data || err.message || 'Failed to create resource';
-      setError(`Failed to create resource: ${errorMessage}`);
+      console.error('Error creating resource:', err);
+      setError(err.response?.data || 'Failed to create resource');
     }
   };
 
-  // Terminate resource
-  const handleTerminate = async (resourceId: string) => {
-    const endDate = prompt('Enter termination date (YYYY-MM-DD):');
-    if (endDate) {
-      try {
-        await resourceService.terminate(resourceId, endDate);
-        await loadData();
-      } catch (err) {
-        setError('Failed to terminate resource');
-        console.error(err);
-      }
-    }
-  };
-
-  // Get cell styling for edited fields
-  const getCellClass = (resourceId: string, field: keyof UpdateResource) => {
-    const edited = editedResources.get(resourceId);
-    if (edited && field in edited) {
-      return 'bg-yellow-100';
-    }
-    return '';
-  };
-
-  // Calculate displayed values with edits
+  // Helper functions for display
   const getDisplayValue = (resource: Resource, field: keyof UpdateResource) => {
     const edited = editedResources.get(resource.id);
-    if (edited && field in edited) {
-      return (edited as any)[field];
+    if (edited && edited[field] !== undefined) {
+      return edited[field];
     }
     return (resource as any)[field];
   };
 
-  // Filter for underwater resources
-  const underwaterResources = useMemo(() => {
-    return resources.filter(r => {
-      const margin = calculateMargin(r.billRate, r.burdenedCost);
-      return isUnderwater(margin);
-    });
-  }, [resources]);
+  const getCellClass = (resourceId: string, field: keyof UpdateResource) => {
+    const edited = editedResources.get(resourceId);
+    return edited && edited[field] !== undefined ? 'bg-yellow-100' : '';
+  };
 
-  if (loading) return <div className="p-4">Loading resources...</div>;
-  if (error) return <div className="p-4 text-red-600">{error}</div>;
+  const filteredResources = useMemo(() => {
+    return resources.filter(resource => {
+      if (filters.searchTerm) {
+        const searchLower = filters.searchTerm.toLowerCase();
+        const matchesSearch = 
+          resource.firstName.toLowerCase().includes(searchLower) ||
+          resource.lastName.toLowerCase().includes(searchLower) ||
+          resource.email.toLowerCase().includes(searchLower) ||
+          (resource.lcatName && resource.lcatName.toLowerCase().includes(searchLower));
+        
+        if (!matchesSearch) return false;
+      }
+      
+      if (filters.resourceType && resource.resourceType !== filters.resourceType) {
+        return false;
+      }
+      
+      if (filters.lcatId && resource.lcatId !== filters.lcatId) {
+        return false;
+      }
+      
+      if (filters.isActive !== undefined && resource.isActive !== filters.isActive) {
+        return false;
+      }
+      
+      return true;
+    });
+  }, [resources, filters]);
+
+  if (loading) {
+    return <div className="p-4">Loading resources...</div>;
+  }
 
   return (
     <div className="p-4">
-      {/* Header */}
-      <div className="mb-4 flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">Resource Management</h1>
-          {underwaterResources.length > 0 && (
-            <div className="text-red-600 text-sm mt-1">
-              ⚠️ {underwaterResources.length} resource(s) with negative margin
-            </div>
-          )}
-        </div>
-        <div className="space-x-2">
-          {hasUnsavedChanges && (
-            <>
-              <span className="text-orange-600 mr-4">You have unsaved changes</span>
-              <button
-                onClick={handleCancelEdits}
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                Cancel Changes
-              </button>
-              <button
-                onClick={handleSaveAllChanges}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-              >
-                Save All Changes
-              </button>
-            </>
-          )}
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            {showAddForm ? 'Cancel' : 'Add Resource'}
-          </button>
-        </div>
-      </div>
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold mb-4">Resource Management</h1>
+        
+        {/* Error display */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+            <button 
+              onClick={() => setError(null)} 
+              className="float-right font-bold"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
-      {/* Filters */}
-      <div className="mb-4 p-4 bg-gray-50 rounded">
-        <div className="grid grid-cols-4 gap-4">
+        {/* Filters */}
+        <div className="mb-4 flex gap-2">
           <input
             type="text"
-            placeholder="Search by name or email..."
-            value={filters.searchTerm}
+            placeholder="Search resources..."
+            value={filters.searchTerm || ''}
             onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
-            className="px-3 py-2 border rounded"
+            className="p-2 border rounded"
           />
           <select
             value={filters.resourceType || ''}
@@ -276,7 +257,7 @@ const ResourceManagement: React.FC = () => {
               ...filters, 
               resourceType: e.target.value as ResourceType || undefined 
             })}
-            className="px-3 py-2 border rounded"
+            className="p-2 border rounded"
           >
             <option value="">All Types</option>
             {Object.values(ResourceType).map(type => (
@@ -285,15 +266,18 @@ const ResourceManagement: React.FC = () => {
           </select>
           <select
             value={filters.lcatId || ''}
-            onChange={(e) => setFilters({ ...filters, lcatId: e.target.value || undefined })}
-            className="px-3 py-2 border rounded"
+            onChange={(e) => setFilters({ 
+              ...filters, 
+              lcatId: e.target.value || undefined 
+            })}
+            className="p-2 border rounded"
           >
             <option value="">All LCATs</option>
             {lcats.map(lcat => (
               <option key={lcat.id} value={lcat.id}>{lcat.name}</option>
             ))}
           </select>
-          <label className="flex items-center">
+          <label className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={filters.isActive !== false}
@@ -301,285 +285,272 @@ const ResourceManagement: React.FC = () => {
                 ...filters, 
                 isActive: e.target.checked ? true : undefined 
               })}
-              className="mr-2"
             />
             Active Only
           </label>
         </div>
-      </div>
 
-      {/* Add Resource Form */}
-      {showAddForm && (
-        <form onSubmit={handleCreateResource} className="mb-6 p-4 border rounded bg-white">
-          <h2 className="text-lg font-semibold mb-4">Add New Resource</h2>
-          
-          {/* Show error message if exists */}
-          {error && (
-            <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-              {error}
-            </div>
+        {/* Action buttons */}
+        <div className="mb-4 flex gap-2">
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            {showAddForm ? 'Cancel' : 'Add Resource'}
+          </button>
+          {hasUnsavedChanges && (
+            <>
+              <button
+                onClick={handleSaveAllChanges}
+                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+              >
+                Save All Changes
+              </button>
+              <button
+                onClick={handleCancelEdits}
+                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+              >
+                Cancel Changes
+              </button>
+              <span className="flex items-center text-yellow-600 ml-2">
+                ⚠️ You have unsaved changes
+              </span>
+            </>
           )}
-          
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block mb-2">First Name*</label>
-              <input
-                type="text"
-                value={newResource.firstName}
-                onChange={(e) => setNewResource({ ...newResource, firstName: e.target.value })}
-                className="w-full p-2 border rounded"
-                required
-              />
-            </div>
-            <div>
-              <label className="block mb-2">Last Name*</label>
-              <input
-                type="text"
-                value={newResource.lastName}
-                onChange={(e) => setNewResource({ ...newResource, lastName: e.target.value })}
-                className="w-full p-2 border rounded"
-                required
-              />
-            </div>
-            <div>
-              <label className="block mb-2">Email*</label>
-              <input
-                type="email"
-                value={newResource.email}
-                onChange={(e) => setNewResource({ ...newResource, email: e.target.value })}
-                className="w-full p-2 border rounded"
-                required
-              />
-            </div>
-            <div>
-              <label className="block mb-2">Resource Type*</label>
-              <select
-                value={newResource.resourceType}
-                onChange={(e) => setNewResource({ 
-                  ...newResource, 
-                  resourceType: e.target.value as ResourceType 
-                })}
-                className="w-full p-2 border rounded"
-                required
-              >
-                {Object.values(ResourceType).map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block mb-2">LCAT*</label>
-              <select
-                value={newResource.lcatId}
-                onChange={(e) => setNewResource({ ...newResource, lcatId: e.target.value })}
-                className="w-full p-2 border rounded"
-                required
-              >
-                <option value="">Select LCAT...</option>
-                {lcats.map(lcat => (
-                  <option key={lcat.id} value={lcat.id}>
-                    {lcat.name} (Rate: ${lcat.currentDefaultBillRate || 'N/A'})
-                  </option>
-                ))}
-              </select>
-              {newResource.lcatId && (
-                <p className="text-sm text-gray-600 mt-1">
-                  Selected LCAT ID: {newResource.lcatId}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block mb-2">Hourly Rate*</label>
-              <input
-                type="number"
-                step="0.01"
-                value={newResource.hourlyRate}
-                onChange={(e) => setNewResource({ 
-                  ...newResource, 
-                  hourlyRate: parseFloat(e.target.value) 
-                })}
-                className="w-full p-2 border rounded"
-                required
-              />
-            </div>
-            <div>
-              <label className="block mb-2">Start Date*</label>
-              <input
-                type="date"
-                value={newResource.startDate}
-                onChange={(e) => setNewResource({ ...newResource, startDate: e.target.value })}
-                className="w-full p-2 border rounded"
-                required
-              />
-            </div>
-            {newResource.resourceType === ResourceType.FixedPrice && (
-              <>
-                <div>
-                  <label className="block mb-2">Fixed Amount</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={newResource.fixedPriceAmount || ''}
-                    onChange={(e) => setNewResource({ 
-                      ...newResource, 
-                      fixedPriceAmount: parseFloat(e.target.value) 
-                    })}
-                    className="w-full p-2 border rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block mb-2">Fixed Hours</label>
-                  <input
-                    type="number"
-                    value={newResource.fixedPriceHours || ''}
-                    onChange={(e) => setNewResource({ 
-                      ...newResource, 
-                      fixedPriceHours: parseInt(e.target.value) 
-                    })}
-                    className="w-full p-2 border rounded"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-          <div className="mt-4 flex gap-2">
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Create Resource
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAddForm(false)}
-              className="px-4 py-2 bg-gray-400 text-white rounded hover:bg-gray-500"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+        </div>
 
-      {/* Resources Table */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full bg-white border">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="px-4 py-2 border text-left">Name</th>
-              <th className="px-4 py-2 border text-left">Email</th>
-              <th className="px-4 py-2 border text-left">Type</th>
-              <th className="px-4 py-2 border text-left">LCAT</th>
-              <th className="px-4 py-2 border text-right">Pay Rate</th>
-              <th className="px-4 py-2 border text-right">Burdened Cost</th>
-              <th className="px-4 py-2 border text-right">Bill Rate</th>
-              <th className="px-4 py-2 border text-right">Margin</th>
-              <th className="px-4 py-2 border text-center">Start Date</th>
-              <th className="px-4 py-2 border text-center">Status</th>
-              <th className="px-4 py-2 border text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {resources.map((resource) => {
-              const margin = calculateMargin(resource.billRate, resource.burdenedCost);
-              const underwater = isUnderwater(margin);
-              
-              return (
-                <tr key={resource.id} className={underwater ? 'bg-red-50' : ''}>
-                  <td className={`px-4 py-2 border ${getCellClass(resource.id, 'firstName')}`}>
-                    <input
-                      type="text"
-                      value={getDisplayValue(resource, 'firstName')}
-                      onChange={(e) => handleResourceEdit(resource.id, 'firstName', e.target.value)}
-                      className="w-full px-2 py-1 border rounded"
-                    />
-                  </td>
-                  <td className={`px-4 py-2 border ${getCellClass(resource.id, 'email')}`}>
-                    <input
-                      type="email"
-                      value={getDisplayValue(resource, 'email')}
-                      onChange={(e) => handleResourceEdit(resource.id, 'email', e.target.value)}
-                      className="w-full px-2 py-1 border rounded"
-                    />
-                  </td>
-                  <td className="px-4 py-2 border">
-                    {resource.resourceType}
-                  </td>
-                  <td className={`px-4 py-2 border ${getCellClass(resource.id, 'lcatId')}`}>
-                    <select
-                      value={getDisplayValue(resource, 'lcatId')}
-                      onChange={(e) => handleResourceEdit(resource.id, 'lcatId', e.target.value)}
-                      className="w-full px-2 py-1 border rounded"
-                    >
-                      {lcats.map(lcat => (
-                        <option key={lcat.id} value={lcat.id}>{lcat.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className={`px-4 py-2 border text-right ${getCellClass(resource.id, 'hourlyRate')}`}>
+        {/* Add Resource Form */}
+        {showAddForm && (
+          <form onSubmit={handleCreateResource} className="mb-4 p-4 border rounded bg-gray-50">
+            <h2 className="text-xl font-semibold mb-4">Add New Resource</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block mb-2">First Name*</label>
+                <input
+                  type="text"
+                  value={newResource.firstName}
+                  onChange={(e) => setNewResource({ ...newResource, firstName: e.target.value })}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block mb-2">Last Name*</label>
+                <input
+                  type="text"
+                  value={newResource.lastName}
+                  onChange={(e) => setNewResource({ ...newResource, lastName: e.target.value })}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block mb-2">Email*</label>
+                <input
+                  type="email"
+                  value={newResource.email}
+                  onChange={(e) => setNewResource({ ...newResource, email: e.target.value })}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block mb-2">Resource Type*</label>
+                <select
+                  value={newResource.resourceType}
+                  onChange={(e) => setNewResource({ 
+                    ...newResource, 
+                    resourceType: e.target.value as ResourceType 
+                  })}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  {Object.values(ResourceType).map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block mb-2">LCAT*</label>
+                <select
+                  value={newResource.lcatId}
+                  onChange={(e) => setNewResource({ ...newResource, lcatId: e.target.value })}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  <option value="">Select LCAT...</option>
+                  {lcats.map(lcat => (
+                    <option key={lcat.id} value={lcat.id}>{lcat.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block mb-2">Hourly Rate*</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newResource.hourlyRate}
+                  onChange={(e) => setNewResource({ 
+                    ...newResource, 
+                    hourlyRate: parseFloat(e.target.value) 
+                  })}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block mb-2">Start Date*</label>
+                <input
+                  type="date"
+                  value={newResource.startDate}
+                  onChange={(e) => setNewResource({ ...newResource, startDate: e.target.value })}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              {newResource.resourceType === ResourceType.FixedPrice && (
+                <>
+                  <div>
+                    <label className="block mb-2">Fixed Amount</label>
                     <input
                       type="number"
                       step="0.01"
-                      value={getDisplayValue(resource, 'hourlyRate')}
-                      onChange={(e) => handleResourceEdit(resource.id, 'hourlyRate', parseFloat(e.target.value))}
-                      className="w-full px-2 py-1 border rounded text-right"
+                      value={newResource.fixedPriceAmount || ''}
+                      onChange={(e) => setNewResource({ 
+                        ...newResource, 
+                        fixedPriceAmount: parseFloat(e.target.value) 
+                      })}
+                      className="w-full p-2 border rounded"
                     />
-                  </td>
-                  <td className="px-4 py-2 border text-right">
-                    ${resource.burdenedCost.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 border text-right">
-                    {resource.billRate ? `$${resource.billRate.toFixed(2)}` : '-'}
-                  </td>
-                  <td className={`px-4 py-2 border text-right ${underwater ? 'text-red-600 font-semibold' : ''}`}>
-                    {margin !== undefined ? `$${margin.toFixed(2)}` : '-'}
-                  </td>
-                  <td className="px-4 py-2 border text-center">
-                    {format(new Date(resource.startDate), 'MM/dd/yyyy')}
-                  </td>
-                  <td className="px-4 py-2 border text-center">
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      resource.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {resource.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 border text-center">
-                    {resource.isActive && (
-                      <button
-                        onClick={() => handleTerminate(resource.id)}
-                        className="text-red-600 hover:text-red-800 text-sm"
-                      >
-                        Terminate
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                  <div>
+                    <label className="block mb-2">Fixed Hours</label>
+                    <input
+                      type="number"
+                      value={newResource.fixedPriceHours || ''}
+                      onChange={(e) => setNewResource({ 
+                        ...newResource, 
+                        fixedPriceHours: parseInt(e.target.value) 
+                      })}
+                      className="w-full p-2 border rounded"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="submit"
+                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+              >
+                Create Resource
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddForm(false)}
+                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
 
-      {/* Summary Stats */}
-      <div className="mt-4 p-4 bg-gray-50 rounded">
-        <div className="grid grid-cols-4 gap-4 text-sm">
-          <div>
-            <span className="font-semibold">Total Resources:</span> {resources.length}
-          </div>
-          <div>
-            <span className="font-semibold">Active:</span> {resources.filter(r => r.isActive).length}
-          </div>
-          <div>
-            <span className="font-semibold">Total Monthly Burn:</span> ${
-              resources
-                .filter(r => r.isActive)
-                .reduce((sum, r) => sum + (r.burdenedCost * 174), 0)
-                .toFixed(2)
-            }
-          </div>
-          <div className={underwaterResources.length > 0 ? 'text-red-600' : ''}>
-            <span className="font-semibold">Underwater:</span> {underwaterResources.length}
-          </div>
+        {/* Resources Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="px-4 py-2 border text-left">Name</th>
+                <th className="px-4 py-2 border text-left">Email</th>
+                <th className="px-4 py-2 border text-left">Type</th>
+                <th className="px-4 py-2 border text-left">LCAT</th>
+                <th className="px-4 py-2 border text-right">Hourly Rate</th>
+                <th className="px-4 py-2 border text-right">Burdened Cost</th>
+                <th className="px-4 py-2 border text-right">Bill Rate</th>
+                <th className="px-4 py-2 border text-right">Margin</th>
+                <th className="px-4 py-2 border text-center">Start Date</th>
+                <th className="px-4 py-2 border text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredResources.map(resource => {
+                const margin = calculateMargin(resource.billRate, resource.burdenedCost);
+                const underwater = isUnderwater(margin);
+                
+                return (
+                  <tr key={resource.id} className={underwater ? 'bg-red-50' : ''}>
+                    <td className={`px-4 py-2 border ${getCellClass(resource.id, 'firstName')}`}>
+                      <input
+                        type="text"
+                        value={getDisplayValue(resource, 'firstName')}
+                        onChange={(e) => handleResourceEdit(resource.id, 'firstName', e.target.value)}
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    </td>
+                    <td className={`px-4 py-2 border ${getCellClass(resource.id, 'email')}`}>
+                      <input
+                        type="email"
+                        value={getDisplayValue(resource, 'email')}
+                        onChange={(e) => handleResourceEdit(resource.id, 'email', e.target.value)}
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    </td>
+                    <td className="px-4 py-2 border">
+                      {resource.resourceType}
+                    </td>
+                    <td className={`px-4 py-2 border ${getCellClass(resource.id, 'lcatId')}`}>
+                      <select
+                        value={getDisplayValue(resource, 'lcatId')}
+                        onChange={(e) => handleResourceEdit(resource.id, 'lcatId', e.target.value)}
+                        className="w-full px-2 py-1 border rounded"
+                      >
+                        {lcats.map(lcat => (
+                          <option key={lcat.id} value={lcat.id}>{lcat.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className={`px-4 py-2 border text-right ${getCellClass(resource.id, 'hourlyRate')}`}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={getDisplayValue(resource, 'hourlyRate')}
+                        onChange={(e) => handleResourceEdit(resource.id, 'hourlyRate', parseFloat(e.target.value))}
+                        className="w-full px-2 py-1 border rounded text-right"
+                      />
+                    </td>
+                    <td className="px-4 py-2 border text-right">
+                      ${resource.burdenedCost?.toFixed(2) || '0.00'}
+                    </td>
+                    <td className="px-4 py-2 border text-right">
+                      {resource.billRate ? `$${resource.billRate.toFixed(2)}` : '-'}
+                    </td>
+                    <td className={`px-4 py-2 border text-right ${underwater ? 'text-red-600 font-semibold' : ''}`}>
+                      {margin !== undefined ? `$${margin.toFixed(2)}` : '-'}
+                    </td>
+                    <td className="px-4 py-2 border text-center">
+                      {formatDate(resource.startDate, 'MM/dd/yyyy', 'N/A')}
+                    </td>
+                    <td className="px-4 py-2 border text-center">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        resource.isActive ? 
+                        'bg-green-100 text-green-800' : 
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {resource.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          
+          {filteredResources.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No resources found matching your filters.
+            </div>
+          )}
         </div>
       </div>
     </div>
