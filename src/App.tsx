@@ -1,24 +1,16 @@
 import React from 'react';
-import logo from './logo.svg';
 import './App.css';
+import LCATManagement from './components/LCAT/LCATManagement';
 
 function App() {
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
+      <header className="bg-blue-900 text-white p-4">
+        <h1 className="text-2xl font-bold">Contract Financial Tracker</h1>
       </header>
+      <main className="container mx-auto">
+        <LCATManagement />
+      </main>
     </div>
   );
 }
